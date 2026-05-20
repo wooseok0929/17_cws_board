@@ -6,10 +6,28 @@ if (isset($_POST["comment_add"])) {
     $author_id = $_POST["author_id"];
     $content = $_POST["content"];
 
-    $sql = "INSERT INTO comments(post_id, author_id, content)
-            VALUES($post_id, $author_id, '$content')";
+    // 조금 헷갈려서 ai의 도움을 받았습니다.
+    mysqli_query($conn,
+    "INSERT INTO comments(post_id, author_id, content)
+    VALUES($post_id, $author_id, '$content')");
+}
 
-    mysqli_query($conn, $sql);
+if (isset($_POST["comment_edit"])) {
+    $id = $_POST["id"];
+    $content = $_POST["content"];
+
+    mysqli_query($conn,
+    "UPDATE comments
+    SET content='$content'
+    WHERE id=$id");
+}
+
+if (isset($_POST["comment_delete"])) {
+    $id = $_POST["id"];
+
+    mysqli_query($conn,
+    "DELETE FROM comments
+    WHERE id=$id");
 }
 
 header("Location: index.php");
