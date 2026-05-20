@@ -26,6 +26,7 @@ if (isset($_POST["post_delete"])) {
     WHERE id=$id");
 }
 
+// 이 부분은 조금 어려워서 ai의 도움을 받았습니다.
 $posts = mysqli_query($conn,
 "SELECT posts.id,
 posts.title,
