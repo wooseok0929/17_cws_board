@@ -49,4 +49,3 @@ if (isset($_POST["comment_delete"])) {
 
 header("Location: index.php?board=$board_type");
 ?>
-```
