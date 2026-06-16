@@ -358,4 +358,3 @@ while ($comment = mysqli_fetch_assoc($comments)) {
 <hr>
 
 <?php } ?>
-```
