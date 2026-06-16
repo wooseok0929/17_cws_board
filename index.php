@@ -1,164 +1,284 @@
 <?php
-
-// db.php 파일을 불러와 DB 연결 사용하기
+session_start();
 include "db.php";
 
-// 게시글 작성 버튼을 눌렀는지 확인하기
-if (isset($_POST["post_add"])) {
-
-    // 게시글 작성 폼에서 입력한 값 가져오기
-    $title = $_POST["title"];
-    $content = $_POST["content"];
-    $author_id = $_POST["author_id"];
-
-    // posts 테이블에 게시글 저장하기
-    mysqli_query($conn,
-    "INSERT INTO posts(title, content, author_id)
-    VALUES('$title', '$content', $author_id)");
+if (!isset($_SESSION["user_id"])) {
+    header("Location: login.php");
+    exit;
 }
 
-// 게시글 수정 버튼을 눌렀는지 확인하기
-if (isset($_POST["post_edit"])) {
+$board_type = "normal";
 
-    // 수정할 게시글 번호와 수정 내용 가져오기
+if (isset($_GET["board"])) {
+    $board_type = $_GET["board"];
+}
+
+if (isset($_POST["board_type"])) {
+    $board_type = $_POST["board_type"];
+}
+
+// 게시글 작성
+if (isset($_POST["post_add"])) {
+    $title = $_POST["title"];
+    $content = $_POST["content"];
+    $author_id = $_SESSION["user_id"];
+
+    mysqli_query($conn,
+    "INSERT INTO posts(title, content, author_id, board_type)
+    VALUES('$title', '$content', $author_id, '$board_type')");
+
+    $post_id = mysqli_insert_id($conn);
+
+    // 파일 처리하는 부분이 너무 어려워서 ai의 도움을 받았습니다
+    if ($_FILES["file"]["name"] != "") {
+        $filename = $_FILES["file"]["name"];
+        $filepath = "upload/" . $filename;
+
+        move_uploaded_file($_FILES["file"]["tmp_name"], $filepath);
+
+        mysqli_query($conn,
+        "INSERT INTO attachments(post_id, filename, filepath)
+        VALUES($post_id, '$filename', '$filepath')");
+    }
+}
+
+// 게시글 수정
+if (isset($_POST["post_edit"])) {
     $id = $_POST["id"];
     $title = $_POST["title"];
     $content = $_POST["content"];
 
-    // 해당 게시글 수정하기
     mysqli_query($conn,
     "UPDATE posts
     SET title='$title', content='$content'
-    WHERE id=$id");
+    WHERE id=$id
+    AND author_id={$_SESSION['user_id']}");
+
+    // 새 파일을 선택하면 기존 파일 정보 교체
+    if ($_FILES["file"]["name"] != "") {
+        $filename = $_FILES["file"]["name"];
+        $filepath = "upload/" . $filename;
+
+        move_uploaded_file($_FILES["file"]["tmp_name"], $filepath);
+
+        mysqli_query($conn,
+        "DELETE FROM attachments
+        WHERE post_id=$id");
+
+        mysqli_query($conn,
+        "INSERT INTO attachments(post_id, filename, filepath)
+        VALUES($id, '$filename', '$filepath')");
+    }
 }
 
 //ai의 도움을 받은 부분
 if (isset($_POST["post_delete"])) {
-
-    // 삭제할 게시글 번호 가져오기
     $id = $_POST["id"];
 
-    // 게시글 삭제 전에 해당 게시글의 댓글 먼저 삭제하기
-    // 댓글이 게시글 번호(post_id)를 참조하고 있기 때문에
-    mysqli_query($conn,
-    "DELETE FROM comments
-    WHERE post_id=$id");
+    $check = mysqli_query($conn,
+    "SELECT id FROM posts
+    WHERE id=$id
+    AND author_id={$_SESSION['user_id']}");
 
-    // 해당 게시글 삭제하기
-    mysqli_query($conn,
-    "DELETE FROM posts
-    WHERE id=$id");
+    if (mysqli_num_rows($check) > 0) {
+        mysqli_query($conn,
+        "DELETE FROM comments
+        WHERE post_id=$id");
+
+        mysqli_query($conn,
+        "DELETE FROM attachments
+        WHERE post_id=$id");
+
+        mysqli_query($conn,
+        "DELETE FROM posts
+        WHERE id=$id");
+    }
 }
 
-// 이 부분도 어려워서 ai의 도움을 받았습니다.
-// posts 테이블과 users 테이블을 JOIN해서
-// 게시글 정보와 작성자 이름을 함께 가져오는 부분
-$posts = mysqli_query($conn,
-"SELECT posts.id,
-posts.title,
-posts.content,
-users.username
-FROM posts
-JOIN users
-ON posts.author_id = users.id
-ORDER BY posts.id DESC");
+// 검색과 정렬
+$search = "";
+$user_search = "";
+$order = "DESC";
 
+if (isset($_GET["search"])) {
+    $search = $_GET["search"];
+}
+
+if (isset($_GET["user_search"])) {
+    $user_search = $_GET["user_search"];
+}
+
+if (isset($_GET["order"]) && $_GET["order"] == "old") {
+    $order = "ASC";
+}
+
+// 유저 검색
+$users = mysqli_query($conn,
+"SELECT username
+FROM users
+WHERE username LIKE '%$user_search%'
+ORDER BY username ASC");
+
+// 너무 여러 조건이 들어가서 ai의 도움을 받았습니다.
+$posts = mysqli_query($conn,
+"SELECT posts.id, posts.title, posts.content,
+posts.author_id, users.username
+FROM posts
+JOIN users ON posts.author_id = users.id
+WHERE posts.board_type='$board_type'
+AND (
+posts.title LIKE '%$search%'
+OR posts.content LIKE '%$search%'
+)
+ORDER BY posts.id $order");
 ?>
 
 <h1>게시판</h1>
 
-<!-- 게시글 작성 폼 -->
-<form method="post">
+<p>
+로그인 사용자: <?php echo $_SESSION["username"]; ?>
+<a href="logout.php">로그아웃</a>
+</p>
 
-<!-- 제목 입력 칸 -->
-제목 <input name="title">
+<p>
+<a href="index.php?board=normal">일반 게시판</a>
+|
+<a href="index.php?board=basketball">농구 게시판</a>
+</p>
 
-<!-- 내용 입력 칸 -->
-내용 <input name="content">
+<?php if ($board_type == "basketball") { ?>
+<h2>농구 게시판</h2>
+<?php } else { ?>
+<h2>일반 게시판</h2>
+<?php } ?>
 
-<!-- 작성자 선택 -->
-<select name="author_id">
-<option value="1">jordan</option>
-<option value="2">kobe</option>
-<option value="3">lebron</option>
-</select>
+<form method="get">
+    <input type="hidden"
+    name="board"
+    value="<?php echo $board_type; ?>">
 
-<!-- 게시글 작성 버튼 -->
-<button name="post_add">
-게시글 작성
-</button>
+    게시물 검색
+    <input name="search"
+    value="<?php echo $search; ?>">
 
+    <select name="order">
+        <option value="new">최신순</option>
+        <option value="old">오래된순</option>
+    </select>
+
+    <button>검색</button>
+</form>
+
+<form method="get">
+    <input type="hidden"
+    name="board"
+    value="<?php echo $board_type; ?>">
+
+    유저 검색
+    <input name="user_search"
+    value="<?php echo $user_search; ?>">
+
+    <button>검색</button>
+</form>
+
+<?php if ($user_search != "") { ?>
+
+<h3>유저 검색 결과</h3>
+
+<?php while ($user = mysqli_fetch_assoc($users)) { ?>
+<p><?php echo $user["username"]; ?></p>
+<?php } ?>
+
+<?php } ?>
+
+<hr>
+
+<form method="post" enctype="multipart/form-data">
+    <input type="hidden"
+    name="board_type"
+    value="<?php echo $board_type; ?>">
+
+    제목 <input name="title">
+    내용 <input name="content">
+    파일 <input type="file" name="file">
+
+    <button name="post_add">게시글 작성</button>
 </form>
 
 <hr>
 
-<?php
+<?php while ($post = mysqli_fetch_assoc($posts)) { ?>
 
-// 게시글 목록 반복 출력
-while($post = mysqli_fetch_assoc($posts)) {
+<h3><?php echo $post["title"]; ?></h3>
 
-?>
-
-<!-- 게시글 제목 출력 -->
-<h3>
-<?php echo $post["title"]; ?>
-</h3>
-
-<!-- 게시글 작성자와 내용 출력 -->
 <p>
-<?php echo $post["username"]; ?>
-:
+<?php echo $post["username"]; ?> :
 <?php echo $post["content"]; ?>
 </p>
 
-<!-- 게시글 수정 폼 -->
-<form method="post">
+<?php
 
-<!-- 수정할 게시글 번호 숨겨서 전달 -->
-<input type="hidden"
-name="id"
-value="<?php echo $post['id']; ?>">
+// 현재 게시글 번호와 같은 첨부파일을 가져오는 부분
+$files = mysqli_query($conn,
+"SELECT *
+FROM attachments
+WHERE post_id={$post['id']}");
 
-<!-- 수정할 제목 입력 -->
-제목
-<input name="title"
-value="<?php echo $post['title']; ?>">
+while ($file = mysqli_fetch_assoc($files)) {
+?>
 
-<!-- 수정할 내용 입력 -->
-내용
-<input name="content"
-value="<?php echo $post['content']; ?>">
+<p>
+첨부파일:
+<a href="<?php echo $file["filepath"]; ?>" download>
+<?php echo $file["filename"]; ?>
+</a>
+</p>
 
-<!-- 게시글 수정 버튼 -->
-<button name="post_edit">
-게시글 수정
-</button>
+<?php } ?>
 
+<?php if ($_SESSION["user_id"] == $post["author_id"]) { ?>
+
+<form method="post" enctype="multipart/form-data">
+    <input type="hidden"
+    name="board_type"
+    value="<?php echo $board_type; ?>">
+
+    <input type="hidden"
+    name="id"
+    value="<?php echo $post["id"]; ?>">
+
+    제목
+    <input name="title"
+    value="<?php echo $post["title"]; ?>">
+
+    내용
+    <input name="content"
+    value="<?php echo $post["content"]; ?>">
+
+    파일
+    <input type="file" name="file">
+
+    <button name="post_edit">
+    게시글 수정
+    </button>
 </form>
 
-<!-- 댓글 작성 폼 -->
+<?php } ?>
+
 <form action="comment.php" method="post">
+    <input type="hidden"
+    name="board_type"
+    value="<?php echo $board_type; ?>">
 
-<!-- 현재 게시글 번호 전달 -->
-<input type="hidden"
-name="post_id"
-value="<?php echo $post['id']; ?>">
+    <input type="hidden"
+    name="post_id"
+    value="<?php echo $post["id"]; ?>">
 
-<!-- 댓글 작성자 선택 -->
-<select name="author_id">
-<option value="1">jordan</option>
-<option value="2">kobe</option>
-<option value="3">lebron</option>
-</select>
+    <input name="content">
 
-<!-- 댓글 입력 칸 -->
-<input name="content">
-
-<!-- 댓글 작성 버튼 -->
-<button name="comment_add">
-댓글 작성
-</button>
-
+    <button name="comment_add">
+    댓글 작성
+    </button>
 </form>
 
 <?php
@@ -166,77 +286,76 @@ value="<?php echo $post['id']; ?>">
 // 이 부분도 같이 도움을 받았습니다.
 // 현재 게시글 번호와 같은 댓글만 가져오는 부분
 $comments = mysqli_query($conn,
-"SELECT comments.id,
-comments.content,
-users.username
+"SELECT comments.id, comments.content,
+comments.author_id, users.username
 FROM comments
-JOIN users
-ON comments.author_id = users.id
-WHERE comments.post_id = {$post['id']}");
+JOIN users ON comments.author_id = users.id
+WHERE comments.post_id={$post['id']}");
 
-// 댓글 목록 반복 출력
-while($comment = mysqli_fetch_assoc($comments)) {
-
+while ($comment = mysqli_fetch_assoc($comments)) {
 ?>
 
-<!-- 댓글 작성자와 내용 출력 -->
 <p>
-ㄴ <?php echo $comment["username"]; ?>
-:
+ㄴ <?php echo $comment["username"]; ?> :
 <?php echo $comment["content"]; ?>
 </p>
 
-<!-- 댓글 수정 폼 -->
+<?php if ($_SESSION["user_id"] == $comment["author_id"]) { ?>
+
 <form action="comment.php" method="post">
+    <input type="hidden"
+    name="board_type"
+    value="<?php echo $board_type; ?>">
 
-<!-- 수정할 댓글 번호 전달 -->
-<input type="hidden"
-name="id"
-value="<?php echo $comment['id']; ?>">
+    <input type="hidden"
+    name="id"
+    value="<?php echo $comment["id"]; ?>">
 
-<!-- 수정할 댓글 내용 입력 -->
-<input name="content"
-value="<?php echo $comment['content']; ?>">
+    <input name="content"
+    value="<?php echo $comment["content"]; ?>">
 
-<!-- 댓글 수정 버튼 -->
-<button name="comment_edit">
-댓글 수정
-</button>
-
+    <button name="comment_edit">
+    댓글 수정
+    </button>
 </form>
 
-<!-- 댓글 삭제 폼 -->
 <form action="comment.php" method="post">
+    <input type="hidden"
+    name="board_type"
+    value="<?php echo $board_type; ?>">
 
-<!-- 삭제할 댓글 번호 전달 -->
-<input type="hidden"
-name="id"
-value="<?php echo $comment['id']; ?>">
+    <input type="hidden"
+    name="id"
+    value="<?php echo $comment["id"]; ?>">
 
-<!-- 댓글 삭제 버튼 -->
-<button name="comment_delete">
-댓글 삭제
-</button>
-
+    <button name="comment_delete">
+    댓글 삭제
+    </button>
 </form>
 
 <?php } ?>
 
-<!-- 게시글 삭제 폼 -->
+<?php } ?>
+
+<?php if ($_SESSION["user_id"] == $post["author_id"]) { ?>
+
 <form method="post">
+    <input type="hidden"
+    name="board_type"
+    value="<?php echo $board_type; ?>">
 
-<!-- 삭제할 게시글 번호 전달 -->
-<input type="hidden"
-name="id"
-value="<?php echo $post['id']; ?>">
+    <input type="hidden"
+    name="id"
+    value="<?php echo $post["id"]; ?>">
 
-<!-- 게시글 삭제 버튼 -->
-<button name="post_delete">
-게시글 삭제
-</button>
-
+    <button name="post_delete">
+    게시글 삭제
+    </button>
 </form>
+
+<?php } ?>
 
 <hr>
 
 <?php } ?>
+```
